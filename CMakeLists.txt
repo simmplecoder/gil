@@ -23,6 +23,7 @@ option(GIL_ENABLE_EXT_TOOLBOX "Enable Toolbox extension, tests and examples" ON)
 option(GIL_USE_CONAN "Use Conan to install dependencies" OFF)
 option(GIL_USE_CLANG_TIDY "Set CMAKE_CXX_CLANG_TIDY property on targets to enable clang-tidy linting" OFF)
 option(GIL_DOWNLOAD_FINDBOOST "Download FindBoost.cmake from latest CMake release" OFF)
+option(GIL_BUILD_BENCHMARKS "Builds all available benchmarks in the benchmark directory" OFF)
 set(CMAKE_CXX_STANDARD 11 CACHE STRING "C++ standard version to use (default is 11)")
 
 #-----------------------------------------------------------------------------
@@ -286,4 +287,8 @@ endif()
 #-----------------------------------------------------------------------------
 if(GIL_BUILD_EXAMPLES AND GIL_ENABLE_EXT_IO)
   add_subdirectory(example)
+endif()
+
+if(GIL_BUILD_BENCHMARKS)
+  add_subdirectory(benchmark)
 endif()
