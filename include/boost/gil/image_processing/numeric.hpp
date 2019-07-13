@@ -47,6 +47,39 @@ inline double lanczos(double x, std::ptrdiff_t a)
     return 0;
 }
 
+/// Fills supplied view with normalized mean
+/// in which all entries will be equal to
+/// 1 / (dst.size())
+void generate_normalized_mean(boost::gil::gray32f_view_t dst) {
+    const float entry = 1.0f / dst.size();
+
+    for (auto& pixel: dst) {
+        pixel.at(std::integral_constant<int, 0>{}) = entry;
+    }
+}
+
+/// Fills supplied view with 1s (ones)
+void generate_unnormalized_mean(boost::gil::gray32f_view_t dst) {
+    for (auto& pixel: dst) {
+        pixel.at(std::integral_constant<int, 0>{}) = 1.0f;
+    }
+}
+
+/// Fills supplied view with values taken from Gaussian distribution. See
+/// https://en.wikipedia.org/wiki/Gaussian_blur
+void generate_gaussian_kernel(boost::gil::gray32f_view_t dst, float sigma) {
+    for (boost::gil::gray32f_view_t::coord_t y = 0; y < dst.height(); ++y)
+    {
+        for (boost::gil::gray32f_view_t::coord_t x = 0; x < dst.height(); ++x)
+        {
+            const float power = -(x * x +  y * y) / (2 * sigma);
+            const float nominator = std::exp(power);
+            const float value = nominator / (2 * boost::gil::pi * sigma * sigma);
+            dst(x, y).at(std::integral_constant<int, 0>{}) = value;
+        }
+    }
+}
+
 }} // namespace boost::gil
 
 #endif
