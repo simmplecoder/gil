@@ -9,6 +9,8 @@
 #define BOOST_GIL_IMAGE_PROCESSING_NUMERIC_HPP
 
 #include <boost/gil/detail/math.hpp>
+#include <boost/gil/image_view.hpp>
+#include <boost/gil/typedefs.hpp>
 #include <cmath>
 #include <stdexcept>
 
@@ -52,7 +54,7 @@ inline double lanczos(double x, std::ptrdiff_t a)
 /// in which all entries will be equal to
 /// 1 / (dst.size())
 void generate_normalized_mean(boost::gil::gray32f_view_t dst) {
-    if (dst.width() != dst.height() && dst.width % 2 != 1)
+    if (dst.width() != dst.height() || dst.width() % 2 != 1)
         throw std::invalid_argument("kernel dimensions should be odd and equal");
     const float entry = 1.0f / dst.size();
 
@@ -63,7 +65,7 @@ void generate_normalized_mean(boost::gil::gray32f_view_t dst) {
 
 /// Fills supplied view with 1s (ones)
 void generate_unnormalized_mean(boost::gil::gray32f_view_t dst) {
-    if (dst.width() != dst.height() && dst.width % 2 != 1)
+    if (dst.width() != dst.height() || dst.width() % 2 != 1)
         throw std::invalid_argument("kernel dimensions should be odd and equal");
 
     for (auto& pixel: dst) {
@@ -73,17 +75,21 @@ void generate_unnormalized_mean(boost::gil::gray32f_view_t dst) {
 
 /// Fills supplied view with values taken from Gaussian distribution. See
 /// https://en.wikipedia.org/wiki/Gaussian_blur
-void generate_gaussian_kernel(boost::gil::gray32f_view_t dst, float sigma) {
-    if (dst.width() != dst.height() && dst.width % 2 != 1)
+void generate_gaussian_kernel(boost::gil::gray32f_view_t dst, double sigma) {
+    if (dst.width() != dst.height() || dst.width() % 2 != 1)
         throw std::invalid_argument("kernel dimensions should be odd and equal");
 
+    const double denominator = 2 * boost::gil::pi * sigma * sigma;
+    const auto middle = boost::gil::point_t(dst.width() / 2, dst.height() / 2);
     for (boost::gil::gray32f_view_t::coord_t y = 0; y < dst.height(); ++y)
     {
         for (boost::gil::gray32f_view_t::coord_t x = 0; x < dst.height(); ++x)
         {
-            const float power = -(x * x +  y * y) / (2 * sigma);
-            const float nominator = std::exp(power);
-            const float value = nominator / (2 * boost::gil::pi * sigma * sigma);
+            const auto delta_x = std::abs(middle.x - x);
+            const auto delta_y = std::abs(middle.y - y);
+            const double power = (delta_x * delta_x +  delta_y * delta_y) / (2 * sigma * sigma);
+            const double nominator = std::exp(-power);
+            const float value = nominator / denominator;
             dst(x, y).at(std::integral_constant<int, 0>{}) = value;
         }
     }
