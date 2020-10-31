@@ -304,11 +304,11 @@ inline void compute_hessian_entries(GradientView dx, GradientView dy, OutputView
 }
 
 template <typename InputView, typename OutputView>
-void compute_angle(InputView const& dx, InputView const& dy, OutputView const& angles)
+void compute_gradient_angle(InputView const& dx, InputView const& dy, OutputView const& angles)
 {
     using input_pixel_type = typename InputView::value_type;
     using output_pixel_type = typename OutputView::value_type;
-    transform_pixels(dx, dy,
+    transform_pixels(dx, dy, angles,
                      [](input_pixel_type const& x, input_pixel_type const& y)
                      {
                          output_pixel_type result;
@@ -320,6 +320,7 @@ void compute_angle(InputView const& dx, InputView const& dy, OutputView const& a
                                               return static_cast<output_channel_type>(
                                                   std::atan2(y, x));
                                           });
+                         return result;
                      });
 }
 
@@ -332,13 +333,15 @@ void compute_gradient_strength(InputView const& dx, InputView const& dy, OutputV
                      [](input_pixel_type const& dx_pixel, input_pixel_type const& dy_pixel)
                      {
                          output_pixel_type output_pixel;
-                         using input_channel_type = typename channel_type<output_pixel_type>::type;
+                         using input_channel_type = typename channel_type<input_pixel_type>::type;
+                         using output_channel_type = typename channel_type<output_pixel_type>::type;
                          static_transform(
                              dx_pixel, dy_pixel, output_pixel,
                              [](input_channel_type dx_channel, input_channel_type dy_channel)
                              {
-                                 return std::sqrt(dx_channel * dx_channel +
-                                                  dy_channel * dy_channel);
+                                 output_channel_type const dx_squared = dx_channel * dx_channel;
+                                 output_channel_type const dy_squared = dy_channel * dy_channel;
+                                 return std::sqrt(dx_squared + dy_squared);
                              });
                          return output_pixel;
                      });
@@ -377,9 +380,7 @@ void nonmax_suppression(InputView input_view, std::ptrdiff_t window_size, PixelT
         for (std::ptrdiff_t x = 0; x < padded.width() - window_size; ++x)
         {
             auto window = subimage_view(padded, x, y, window_size, window_size);
-            std::vector<PixelType> window_pixels(window.begin(), window.end());
-            auto end = shape_extractor(window_pixels.begin(), window_pixels.end(), window_size);
-            window_pixels.erase(end);
+            auto window_pixels = shape_extractor(window, point_t(x, y));
             std::sort(window_pixels.begin(), window_pixels.end(), comp);
             auto rbegin = window_pixels.rbegin();
             auto greatest = *rbegin;

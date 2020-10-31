@@ -1,8 +1,105 @@
-#include "boost/gil/image_processing/numeric.hpp"
+#include "boost/gil/image_view_factory.hpp"
+#include <algorithm>
 #include <boost/gil.hpp>
 #include <boost/gil/extension/io/png.hpp>
 
 namespace gil = boost::gil;
+
+enum class bidirection
+{
+    main_diagonal,
+    vertical,
+    second_diagonal,
+    horizontal
+};
+
+struct orthogonal_gradient_extractor
+{
+    gil::gray32f_view_t gradient_angle;
+    bidirection to_bidirection(float angle) const
+    {
+        const auto pi = static_cast<float>(gil::detail::pi);
+        const auto one_eightth_pi = pi / 8.0;
+        // use the fact that bidirection is symmetrical around origin
+        if (angle < 0)
+        {
+            angle += pi;
+        }
+
+        if (angle > 5 * one_eightth_pi && angle <= 7 * one_eightth_pi)
+        {
+            return bidirection::main_diagonal;
+        }
+        else if (angle > 3 * one_eightth_pi && angle <= 5 * one_eightth_pi)
+        {
+            return bidirection::vertical;
+        }
+        else if (angle > one_eightth_pi && angle <= 3 * one_eightth_pi)
+        {
+            return bidirection::second_diagonal;
+        }
+        else
+        {
+            return bidirection::horizontal;
+        }
+    }
+
+    bidirection to_orthogonal_direction(bidirection bidir) const
+    {
+        switch (bidir)
+        {
+        case bidirection::main_diagonal:
+            return bidirection::second_diagonal;
+        case bidirection::vertical:
+            return bidirection::horizontal;
+        case bidirection::second_diagonal:
+            return bidirection::main_diagonal;
+        default:
+            return bidirection::vertical;
+        }
+    }
+
+    template <typename View>
+    std::array<typename View::value_type, 3> operator()(View const& window,
+                                                        gil::point_t origin) const
+    {
+        using pixel_type = typename View::value_type;
+        auto bidirection = to_orthogonal_direction(to_bidirection(gradient_angle(origin)[0]));
+        std::array<pixel_type, 3> points;
+        gil::point_t (*index_to_point)(std::ptrdiff_t, std::ptrdiff_t) = nullptr;
+        switch (bidirection)
+        {
+        case bidirection::main_diagonal:
+            index_to_point = [](std::ptrdiff_t i, std::ptrdiff_t /*width*/)
+            {
+                return gil::point_t(i, i);
+            };
+            break;
+        case bidirection::vertical:
+            index_to_point = [](std::ptrdiff_t i, std::ptrdiff_t /*width*/)
+            {
+                return gil::point_t(1, i);
+            };
+            break;
+        case bidirection::second_diagonal:
+            index_to_point = [](std::ptrdiff_t i, std::ptrdiff_t width)
+            {
+                return gil::point_t(width - 1 - i, i);
+            };
+            break;
+        default:
+            index_to_point = [](std::ptrdiff_t i, std::ptrdiff_t /*width*/)
+            {
+                return gil::point_t(i, 0);
+            };
+        }
+        for (std::ptrdiff_t i = 0; i < 3; ++i)
+        {
+            points[i] = window(index_to_point(i, window.width()));
+        }
+        return points;
+    }
+};
 
 int main(int argc, char* argv[])
 {
@@ -12,8 +109,8 @@ int main(int argc, char* argv[])
     auto input = gil::view(input_image);
     auto sobel_x = gil::generate_dx_sobel();
     auto sobel_y = gil::generate_dy_sobel();
-    gil::gray16_image_t dx_image(input_image.dimensions());
-    gil::gray16_image_t dy_image(input_image.dimensions());
+    gil::gray16s_image_t dx_image(input_image.dimensions());
+    gil::gray16s_image_t dy_image(input_image.dimensions());
     auto dx = gil::view(dx_image);
     auto dy = gil::view(dy_image);
     gil::detail::convolve_2d(input, sobel_x, dx);
@@ -21,5 +118,28 @@ int main(int argc, char* argv[])
     gil::gray16_image_t gradient_image(input_image.dimensions());
     auto gradient = gil::view(gradient_image);
     gil::compute_gradient_strength(dx, dy, gradient);
-    gil::write_view("gradient.png", gradient, gil::png_tag{});
+    auto max_element = *std::max_element(gradient.begin(), gradient.end(),
+                                         [](gil::gray16_pixel_t lhs, gil::gray16_pixel_t rhs)
+                                         {
+                                             return lhs[0] < rhs[0];
+                                         });
+    gil::transform_pixels(gradient, gradient,
+                          [max_element](gil::gray16_pixel_t pixel)
+                          {
+                              return (pixel[0] / static_cast<double>(max_element[0])) *
+                                     std::numeric_limits<gil::uint16_t>::max();
+                          });
+    gil::write_view("gradient.png", gil::color_converted_view<gil::gray8_pixel_t>(gradient),
+                    gil::png_tag{});
+
+    gil::gray32f_image_t gradient_angle_image(input.dimensions());
+    auto gradient_angle = gil::view(gradient_angle_image);
+    gil::compute_gradient_angle(dx, dy, gradient_angle);
+
+    orthogonal_gradient_extractor extractor{gradient_angle};
+    gil::gray16_image_t suppressed_image(input.dimensions());
+    auto suppressed = gil::view(suppressed_image);
+    gil::nonmax_suppression(gradient, 3, gil::gray16_pixel_t(0), suppressed, extractor);
+    gil::write_view("suppressed.png", gil::color_converted_view<gil::gray8_pixel_t>(suppressed),
+                    gil::png_tag{});
 }
