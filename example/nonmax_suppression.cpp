@@ -165,6 +165,33 @@ void hysteresis(const gil::gray16_view_t& input,
     }
 }
 
+void gradient(const gil::gray8_view_t& input, const gil::gray16_view_t& strength, const gil::gray32f_view_t& angle) {
+    auto sobel_x = gil::generate_dx_sobel();
+    auto sobel_y = gil::generate_dy_sobel();
+    gil::gray16s_image_t dx_image(input.dimensions());
+    gil::gray16s_image_t dy_image(input.dimensions());
+    auto dx = gil::view(dx_image);
+    auto dy = gil::view(dy_image);
+    gil::detail::convolve_2d(input, sobel_x, dx);
+    gil::detail::convolve_2d(input, sobel_y, dy);
+
+    gil::compute_gradient_strength(dx, dy, strength);
+
+    auto max_element = *std::max_element(strength.begin(), strength.end(),
+                                         [](gil::gray16_pixel_t lhs, gil::gray16_pixel_t rhs)
+                                         {
+                                             return lhs[0] < rhs[0];
+                                         });
+    gil::transform_pixels(strength, strength,
+                          [max_element](gil::gray16_pixel_t pixel)
+                          {
+                              return (pixel[0] / static_cast<double>(max_element[0])) *
+                                     std::numeric_limits<gil::uint16_t>::max();
+                          });
+
+    gil::compute_gradient_angle(dx, dy, angle);
+}
+
 int main(int argc, char* argv[])
 {
     gil::gray8_image_t input_image;
@@ -172,39 +199,19 @@ int main(int argc, char* argv[])
 
     auto input = gil::view(input_image);
 
-    auto sobel_x = gil::generate_dx_sobel();
-    auto sobel_y = gil::generate_dy_sobel();
-    gil::gray16s_image_t dx_image(input_image.dimensions());
-    gil::gray16s_image_t dy_image(input_image.dimensions());
-    auto dx = gil::view(dx_image);
-    auto dy = gil::view(dy_image);
-    gil::detail::convolve_2d(input, sobel_x, dx);
-    gil::detail::convolve_2d(input, sobel_y, dy);
     gil::gray16_image_t gradient_image(input_image.dimensions());
-    auto gradient = gil::view(gradient_image);
-    gil::compute_gradient_strength(dx, dy, gradient);
-    auto max_element = *std::max_element(gradient.begin(), gradient.end(),
-                                         [](gil::gray16_pixel_t lhs, gil::gray16_pixel_t rhs)
-                                         {
-                                             return lhs[0] < rhs[0];
-                                         });
-    gil::transform_pixels(gradient, gradient,
-                          [max_element](gil::gray16_pixel_t pixel)
-                          {
-                              return (pixel[0] / static_cast<double>(max_element[0])) *
-                                     std::numeric_limits<gil::uint16_t>::max();
-                          });
-    gil::write_view("gradient.png", gil::color_converted_view<gil::gray8_pixel_t>(gradient),
-                    gil::png_tag{});
-
+    auto gradient_strength = gil::view(gradient_image);
     gil::gray32f_image_t gradient_angle_image(input.dimensions());
     auto gradient_angle = gil::view(gradient_angle_image);
-    gil::compute_gradient_angle(dx, dy, gradient_angle);
+    gradient(input, gradient_strength, gradient_angle);
+
+    gil::write_view("gradient_strength.png", gil::color_converted_view<gil::gray8_pixel_t>(gradient_strength),
+                    gil::png_tag{});
 
     orthogonal_gradient_extractor extractor{gradient_angle};
     gil::gray16_image_t suppressed_image(input.dimensions());
     auto suppressed = gil::view(suppressed_image);
-    gil::nonmax_suppression(gradient, 3, gil::gray16_pixel_t(0), suppressed, extractor);
+    gil::nonmax_suppression(gradient_strength, 3, gil::gray16_pixel_t(0), suppressed, extractor);
     gil::write_view("suppressed.png", gil::color_converted_view<gil::gray8_pixel_t>(suppressed),
                     gil::png_tag{});
 
